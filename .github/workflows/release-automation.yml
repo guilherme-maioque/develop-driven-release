@@ -1,0 +1,62 @@
+name: release-automation
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  prepare-new-release:
+    # Prevents loop if the synchronization commit (back-merge) triggers the action
+    if: "!contains(github.event.head_commit.message, 'chore: sync')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 1. Calculates the unique increment, generates accumulated Changelog, and creates the stable Tag
+      - name: Bump Version and Generate Tag
+        id: bump_version
+        uses: TriPSs/conventional-changelog-action@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-message: 'chore(release): {version} [stable]'
+          preset: 'conventionalcommits'
+          release-count: 0
+          version-file: './version.yml'
+          version-path: 'version'
+          fallback-version: '1.0.0'
+          git-branch: 'main'
+
+      # 2. Creates the official Release page on GitHub
+      - name: Create GitHub Release
+        if: steps.bump_version.outputs.skipped == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.bump_version.outputs.tag }}
+          name: Release ${{ steps.bump_version.outputs.tag }}
+          generate_release_notes: true
+
+      # 3. BACK-MERGE: Returns the stable version and Changelog updates to the develop branch
+      - name: Back-merge Main to Develop
+        if: steps.bump_version.outputs.skipped == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git fetch origin develop
+          git checkout develop
+          
+          # Pulls version updates from main into develop
+          # Using --no-ff to maintain a clear history of the synchronization merge
+          git merge main --no-ff -m "chore: sync develop with main [stable]"
+          
+          git push origin develop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

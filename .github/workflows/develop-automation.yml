@@ -1,0 +1,40 @@
+name: develop-automation
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  generate-pull-request:
+    # Maintain safety lock, even though the bot won't commit here anymore
+    if: "!contains(github.event.head_commit.message, 'chore(release)')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Fetch current version only for the PR title
+      - name: Create or Update Pull Request
+        run: |
+          VERSION=$(cat version.yml | grep version | awk '{print $2}')
+          TITLE="Release Update Proposal in v$VERSION"
+          BODY="This is a proposed update to the current v$VERSION release.
+          This PR accumulates atomic commits from _develop_.
+          The **version number** and the **Changelog** will only be updated upon merging with _main_."
+
+          gh pr create \
+            --base main \
+            --head develop \
+            --title "$TITLE" \
+            --body "$BODY" || \
+          gh pr edit develop --title "$TITLE" --body "$BODY"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
